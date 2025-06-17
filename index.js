@@ -1,20 +1,24 @@
-import 'dotenv/config';
-import OpenAI from 'openai';
+import "dotenv/config";
+import OpenAI from "openai";
+import readlineSync from "readline-sync";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const client = new OpenAI({
-    apiKey: OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
 });
 
 // Tools
 
-function getWeatherDetails(city = '') {
-    if (city.toLocaleLowerCase() === 'kolkata') return '10°C';
-    if (city.toLocaleLowerCase() === 'delhi') return '19°C';
-    if (city.toLocaleLowerCase() === 'bangalore') return '14°C';
-    if (city.toLocaleLowerCase() === 'mohali') return '21°C';
+function getWeatherDetails(city = "") {
+  if (city.toLocaleLowerCase() === "kolkata") return "10°C";
+  if (city.toLocaleLowerCase() === "delhi") return "19°C";
+  if (city.toLocaleLowerCase() === "bangalore") return "14°C";
+  if (city.toLocaleLowerCase() === "mohali") return "21°C";
 }
 
+const tools = {
+  getWeatherDetails: getWeatherDetails,
+};
 // System Prompts
 
 const SYSTEM_PROMPTS = `
@@ -23,6 +27,7 @@ Wait for the user prompts and first Plan using available tools.
 After plaining, Take action with appropriate tools and wait for Obersvation based on Action.
 Once you get the obeservation, Return the AI response based on START prompt and obeservations.
 
+Strickly follow the JSON output format as in Example
 
 Available Tools:
  - getWeatherDetails(city: string): string
@@ -40,18 +45,38 @@ START
 {"type": "output", "output": "The sum of weather of kolkata and delhi is 29°C"}
 `;
 
-// User Input
+const messages = [{ role: "system", content: SYSTEM_PROMPTS }];
 
-const user = "Hey, What is the weather of kolkata?";
+while (true) {
+  const query = readlineSync.question("> ");
+  const q = {
+    type: "user",
+    user: query,
+  };
+  messages.push({ role: "user", content: JSON.stringify(q) });
 
-async function chat() {
-    const result = await client.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-            { role: 'system', content: SYSTEM_PROMPTS },
-            { role: 'user', content: user }
-        ]
+  while (true) {
+    const chat = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+      response_format: { type: "json_object" },
     });
-    console.log(result.choices[0].message.content);
+    const result = chat.choices[0].message.content;
+    messages.push({ role: "assistant", content: result });
+    console.log(`\n\n-----------------Start AI-------------------`);
+    console.log(result);
+    console.log(`-----------------End AI-------------------\n\n`);
+
+    const call = JSON.parse(result);
+
+    if (call.type == "output") {
+      console.log(`🤖: ${call.output}`);
+      break;
+    } else if (call.type == "action") {
+      const fn = tools[call.function];
+      const observation = fn(call.input);
+      const obs = { type: "observation", observation: observation };
+      messages.push({ role: "developer", content: JSON.stringify(obs) });
+    }
+  }
 }
-chat();
